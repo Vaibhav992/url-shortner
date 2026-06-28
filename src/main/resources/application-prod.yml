@@ -1,0 +1,46 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+app:
+  base-url: ${BASE_URL}
+  alias:
+    auto-length: ${APP_ALIAS_AUTO_LENGTH:7}
+  ttl:
+    default-seconds: ${APP_TTL_DEFAULT_SECONDS:60}
+  cache:
+    max-size: ${APP_CACHE_MAX_SIZE:10000}
+    expire-minutes: ${APP_CACHE_EXPIRE_MINUTES:10}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+server:
+  port: ${PORT:8080}
+
+logging:
+  level:
+    com.urlshortener: ${LOG_LEVEL:INFO}

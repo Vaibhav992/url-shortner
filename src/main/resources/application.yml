@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: url-shortener
+  config:
+    import: optional:file:.env[.properties]
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:prod}

@@ -1,0 +1,111 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: "21"
+  IMAGE_NAME: url-shortener
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+
+      - name: Run tests
+        env:
+          SPRING_PROFILES_ACTIVE: prod
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+        run: |
+          chmod +x mvnw
+          ./mvnw -B verify
+
+  deploy:
+    name: Build & Deploy
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_TOKEN }}
+
+      - name: Log in to Container Registry
+        run: doctl registry login
+
+      - name: Build and push Docker image
+        env:
+          REGISTRY: ${{ secrets.DO_REGISTRY }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE="registry.digitalocean.com/${REGISTRY}/${{ env.IMAGE_NAME }}"
+          docker build -t "${IMAGE}:${IMAGE_TAG}" -t "${IMAGE}:latest" .
+          docker push "${IMAGE}:${IMAGE_TAG}"
+          docker push "${IMAGE}:latest"
+
+      - name: Deploy to Droplet
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          DO_TOKEN: ${{ secrets.DO_TOKEN }}
+          DO_REGISTRY: ${{ secrets.DO_REGISTRY }}
+          IMAGE_TAG: ${{ github.sha }}
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: DO_TOKEN,DO_REGISTRY,IMAGE_TAG
+          script: |
+            set -euo pipefail
+            REGISTRY="${DO_REGISTRY}"
+            IMAGE_TAG="${IMAGE_TAG}"
+            CONTAINER_NAME="url-shortener"
+            ENV_FILE="/opt/url-shortener/.env"
+            IMAGE="registry.digitalocean.com/${REGISTRY}/url-shortener:${IMAGE_TAG}"
+
+            echo "${DO_TOKEN}" | docker login registry.digitalocean.com -u "${DO_TOKEN}" --password-stdin
+            docker pull "${IMAGE}"
+            docker tag "${IMAGE}" "registry.digitalocean.com/${REGISTRY}/url-shortener:latest"
+            docker stop "${CONTAINER_NAME}" 2>/dev/null || true
+            docker rm "${CONTAINER_NAME}" 2>/dev/null || true
+            docker run -d \
+              --name "${CONTAINER_NAME}" \
+              --restart unless-stopped \
+              -p 80:8080 \
+              --env-file "${ENV_FILE}" \
+              "${IMAGE}"
+
+            for i in $(seq 1 45); do
+              status="$(docker inspect -f '{{.State.Health.Status}}' "${CONTAINER_NAME}" 2>/dev/null || echo "starting")"
+              if [ "${status}" = "healthy" ]; then
+                echo "Deploy successful — app is healthy."
+                docker image prune -f
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "Health check failed. Container logs:"
+            docker logs "${CONTAINER_NAME}" --tail 50
+            exit 1
