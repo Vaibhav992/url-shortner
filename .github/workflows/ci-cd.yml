@@ -29,9 +29,25 @@ jobs:
           distribution: temurin
           cache: maven
 
+      - name: Validate test secrets
+        run: |
+          missing=0
+          for name in DATABASE_URL DATABASE_USERNAME DATABASE_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing GitHub secret: $name"
+              missing=1
+            fi
+          done
+          exit "$missing"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+
       - name: Run tests
         env:
           SPRING_PROFILES_ACTIVE: prod
+          BASE_URL: http://localhost:8080
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
           DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}

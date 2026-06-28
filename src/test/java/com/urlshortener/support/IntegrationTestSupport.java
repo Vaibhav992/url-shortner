@@ -20,6 +20,7 @@ public final class IntegrationTestSupport {
 		registry.add("spring.datasource.username", () -> required("DATABASE_USERNAME"));
 		registry.add("spring.datasource.password", () -> required("DATABASE_PASSWORD"));
 		registry.add("spring.datasource.driver-class-name", () -> "org.postgresql.Driver");
+		registry.add("BASE_URL", () -> optional("BASE_URL", "http://localhost:8080"));
 	}
 
 	private static void loadDotEnvIfPresent() {
@@ -51,6 +52,17 @@ public final class IntegrationTestSupport {
 		if (System.getenv(key) == null && System.getProperty(key) == null) {
 			System.setProperty(key, value);
 		}
+	}
+
+	private static String optional(String key, String defaultValue) {
+		String value = System.getenv(key);
+		if (value == null || value.isBlank()) {
+			value = System.getProperty(key);
+		}
+		if (value == null || value.isBlank()) {
+			return defaultValue;
+		}
+		return value;
 	}
 
 	private static String required(String key) {
